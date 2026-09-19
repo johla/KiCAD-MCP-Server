@@ -41,6 +41,148 @@ Access project state without executing tools:
 - Proper capability negotiation
 - Standards-compliant error codes
 
+## F0 CERN evidence ingestion
+
+`python -m adapters.cern` is an independent, standard-library-only ingestion gate.
+It does **not** add MCP tools, import KiCad, select parts automatically, or modify
+`CERN.sqlite`. CERN's corpus is institutional evidence, **not manufacturer truth**.
+All normalized components and representations remain `unverified`, including
+successfully resolved library geometry. Manufacturer datasheet crosschecking is
+explicitly `not_implemented`.
+
+Run from this repository's root with Python 3.9 or newer:
+
+```bash
+# Offline extraction: complete source capture, explicitly incomplete geometry.
+python -m adapters.cern --sqlite CERN.sqlite --output generated/cern
+
+# Real symbol/pad joins against an existing CERN library checkout or extracted archive.
+python -m adapters.cern --sqlite CERN.sqlite --output generated/cern \
+  --libraries /absolute/path/to/cern-kicad-libs
+
+# Optional strict geometry gate; writes the report and exits 2 when incomplete.
+python -m adapters.cern --sqlite CERN.sqlite --output generated/cern \
+  --libraries /absolute/path/to/cern-kicad-libs --require-complete-geometry
+```
+
+The optional library input is the root of
+[`ohwr/cern-kicad-libs`](https://gitlab.com/ohwr/cern-kicad-libs), containing
+`sym-lib-table`, `fp-lib-table`, `SchLib/`, and `PcbLib/`. Supply an existing checkout
+or download/extract an upstream archive yourself; the adapter never clones,
+downloads, executes library content, or expands arbitrary environment variables.
+It resolves library nicknames through the tables, accepting only bounded
+`${CERN_LIB_DIR}/...` KiCad paths. Symbol names containing `/` are valid lookup
+keys, not filesystem paths; footprint traversal and escaping symlinks are refused.
+For reproducibility, use an immutable upstream revision. Reports record both table
+hashes and each joined geometry file's SHA-256, rather than guessing a Git revision.
+
+### Artifacts and identity model
+
+Outputs under `generated/cern/` are intentionally gitignored: the complete corpus
+and external libraries are large and regenerable. The six runtime outputs are:
+
+| File | Contract and purpose |
+| --- | --- |
+| `components.raw.jsonl` | Every source row, every original column/value, table, row key, ordinal, original part number, source database hash |
+| `components.normalized.jsonl` | Manufacturer + manufacturer part number identities, CERN part numbers, source links, per-field evidence, **all** lifecycle observations, representation links |
+| `representations.jsonl` | Two source-linked slots per row (symbol and footprint), original reference, parsed nickname/name, resolution status, geometry/provenance where available |
+| `anomalies.jsonl` | Every conservative rule finding, supporting evidence, source/component links and review action |
+| `quality_report.json` | Extraction integrity checks, lifecycle/reference/geometry counters, all rule totals, deterministic top 100 anomalies and explicit limitations |
+| `sqlite_inventory.json` | Every user table's original DDL, column metadata and expected row count, including empty tables |
+
+Reusable entrypoints are `schemas/component_identity.schema.json`,
+`schemas/component_evidence.schema.json`, `schemas/component_representation.schema.json`,
+and `schemas/lifecycle_state.schema.json`. Field evidence records each source
+column's `source_value`, `normalized_value`, source ID, `claim`, `confidence`,
+and `verification_state`. Claims remain unverified institutional source assertions:
+identity and lifecycle fields are normalized; other values are preserved verbatim.
+Merged identities retain every source observation, including conflicting claims.
+
+Draft 2020-12 contracts are also in `schemas/cern.*.schema.json`, with shared definitions
+in `schemas/cern.schema.json`. JSONL contracts apply to **each line**, not the file
+as a single JSON document. BLOBs use `{"$sqlite_blob_base64": "..."}` and nonfinite
+SQLite REALs use `{"$sqlite_float": "inf"}` (or `"-inf"`), avoiding lossy JSON coercion.
+
+Identity normalization collapses whitespace, case-folds the manufacturer, and
+**preserves MPN case**. No manufacturer aliasing, fuzzy matching, or splitting of
+compound MPNs occurs. Missing identities remain separate per source row. Multiple
+symbols, footprints, package variants, or lifecycle observations never overwrite
+one another and are not, by themselves, identity collisions. Original values remain
+available in the raw records; normalized lifecycle labels do not imply current
+availability or manufacturer endorsement. Unknown/typo labels remain `unknown`.
+
+IDs and ordering are deterministic for identical input bytes. Source IDs incorporate
+the database hash, table, and SQLite row identity; normalized complete component IDs
+depend only on manufacturer/MPN. A changed source database intentionally changes
+source and representation IDs. Without-rowid tables retain primary keys; if every
+rowid alias is shadowed, deterministic value ordering plus ordinal preserves even
+duplicate rows. SQLite connections use URI `mode=ro`; hashes are checked before and
+after extraction. A nonempty WAL is rejected: supply a quiescent standalone snapshot
+rather than allowing the adapter to checkpoint or modify the source.
+
+### Conservative anomaly rules and gate semantics
+
+- `pin_count_mismatch`: compares positive declared pin counts with unique physical
+  symbol numbers and footprint pad numbers. Multiunit/common pins, repeated pads,
+  alternate symbol bodies, and inheritance are handled without double-counting.
+  Differing alternate number sets, unsupported inherited/local pin combinations,
+  unnumbered electrical pads, and pinless geometry remain non-comparable.
+  Unnumbered non-plated mechanical holes do not increase electrical pad counts.
+- `package_mismatch`: flags only conflicting explicit package families, not guessed
+  package dimensions or naïve numerical suffix comparisons. For example, QFN56
+  with a 57th exposed thermal pad is not inherently a package mismatch.
+- `mounting_mismatch`: compares explicit source SMD yes/no with homogeneous
+  electrical pad types. Mixed/unknown mounting is not guessed.
+- `identity_collision`: flags known incompatible source families sharing an
+  identity; ordinary SMD/through-hole or symbol variants are not collisions.
+- `datasheet_placeholder_unresolved`: records unexpanded `${...}` references.
+  Neither a path nor its absence establishes datasheet correctness.
+- `lifecycle_normalization_needed`: flags unrecognized source lifecycle vocabulary;
+  recognized variants normalize without pretending that typos are authoritative.
+- `semantic_generation_mismatch`: a curated **RP2040 golden negative** catches
+  Cortex-M33, Hazard3, 150 MHz, 520 KB SRAM and internal-flash claims on the bare
+  RP2040 identity. The source description is preserved, never silently repaired.
+  This is not a general semantic validator or an implemented datasheet crosscheck.
+
+Default success means extraction integrity passed, **not** that the corpus is safe
+for design. Missing/malformed references and absent library entries are explicitly
+counted. `geometry_complete` is false for unresolved or ambiguous geometry, including
+conservatively non-comparable mechanical parts. Use `--require-complete-geometry`
+when incompleteness must fail automation. Exit 1 indicates input/integrity/I/O errors;
+exit 2 indicates an unmet strict geometry gate. Findings are review candidates,
+ranked by severity, rule name, and stable anomaly ID; even high-severity findings
+retain unverified evidence status.
+
+### Measured first-cut corpus and tests
+
+The supplied SQLite SHA-256
+`ccd83a31cbda0d55a5a3029fb22e42e80da651eefa11b9172f96d098b2e345a5`
+contains **55 tables and 24,223 rows**, captured losslessly as **20,278 normalized
+identities** and **48,446 representation slots**. A full join against the upstream
+master archive downloaded on 2026-09-19 resolved 24,222 symbols and 24,196 footprints:
+**28 unresolved slots** and **1,584 ambiguous/non-comparable geometries** remain.
+These are observations for that evidence snapshot, not permanent expected totals.
+
+The measured run found 3,067 pin-count, 38 explicit package, 239 mounting, zero
+incompatible-family identity collisions, 24,049 datasheet-placeholder, two lifecycle
+vocabulary, and one RP2040 semantic finding. The report retains all **27,396**
+findings; the RP2040 golden negative appears in the top 100. Counts are intentionally
+not corrected away, and new library revisions may change them.
+
+The fixture suite covers lossless extraction, read-only enforcement, deterministic
+outputs, identity/representation separation, lifecycle preservation, path boundaries,
+multiunit/alternate/inherited symbols, unique pads, conservative anomalies, schema
+contracts (including rejecting invalid structures), and the real SQLite golden
+negative. It uses the existing pytest dependency and no new runtime dependencies:
+
+```bash
+python -m pytest -o addopts= tests/test_cern_ingestion.py tests/test_platform_helper.py -q
+```
+
+The test contract checker implements only the JSON Schema assertion keywords used
+by these contracts, failing if unsupported assertion keywords are introduced; it is
+not presented as a general-purpose JSON Schema validator.
+
 ## Available Tools
 
 The server provides 52 tools organized into functional categories:
