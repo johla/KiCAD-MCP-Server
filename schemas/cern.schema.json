@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "F0 CERN evidence contracts",
+  "$defs": {
+    "version": {"const": "1.0"},
+    "id": {"type": "string", "pattern": "^[a-z_]+_[0-9a-f]{64}$"},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullableText": {"type": ["string", "null"]},
+    "ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "evidence": {
+      "type": "object",
+      "required": ["authority", "verification", "confidence", "datasheet_crosscheck"],
+      "additionalProperties": false,
+      "properties": {
+        "authority": {"enum": ["institutional_database", "institutional_library"]},
+        "verification": {"const": "unverified"},
+        "confidence": {"const": "unverified"},
+        "datasheet_crosscheck": {"const": "not_implemented"}
+      }
+    },
+    "fieldEvidence": {
+      "type": "object",
+      "required": ["source_id", "field", "source_value", "normalized_value", "claim", "authority", "confidence", "verification_state"],
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "field": {"type": "string"},
+        "source_value": {},
+        "normalized_value": {},
+        "claim": {"const": "source_assertion"},
+        "authority": {"const": "institutional_database"},
+        "confidence": {"const": "unverified"},
+        "verification_state": {"const": "unverified"}
+      }
+    },
+    "raw": {
+      "type": "object",
+      "required": ["schema_version", "source_id", "source", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/version"},
+        "source_id": {"$ref": "#/$defs/id"},
+        "source": {
+          "type": "object",
+          "required": ["database_sha256", "table", "key", "ordinal", "part_number"],
+          "additionalProperties": false,
+          "properties": {
+            "database_sha256": {"$ref": "#/$defs/hash"},
+            "table": {"type": "string"},
+            "key": {"type": "object"},
+            "ordinal": {"type": "integer", "minimum": 1},
+            "part_number": {}
+          }
+        },
+        "fields": {"type": "object", "description": "Every SQLite column, verbatim. BLOB/nonfinite REAL values use tagged lossless objects."}
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["source_id", "source_value", "normalized", "recognized", "normalization_needed"],
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "source_value": {},
+        "normalized": {"enum": ["unknown", "preferred", "recommended", "not_preferred", "not_recommended", "obsolete", "preliminary", "discontinued", "end_of_life", "sourcing_difficulty"]},
+        "recognized": {"type": "boolean"},
+        "normalization_needed": {"type": "boolean"}
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": ["schema_version", "component_id", "manufacturer", "manufacturer_part_number", "cern_part_numbers", "field_evidence", "identity_complete", "identity_policy", "source_ids", "representation_ids", "lifecycle", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/version"},
+        "component_id": {"$ref": "#/$defs/id"},
+        "manufacturer": {"$ref": "#/$defs/nullableText"},
+        "manufacturer_part_number": {"$ref": "#/$defs/nullableText"},
+        "cern_part_numbers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "field_evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fieldEvidence"}},
+        "identity_complete": {"type": "boolean"},
+        "identity_policy": {"const": "manufacturer-casefold_mpn-case-sensitive_whitespace-collapsed"},
+        "source_ids": {"$ref": "#/$defs/ids"},
+        "representation_ids": {"$ref": "#/$defs/ids"},
+        "lifecycle": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/lifecycle"}},
+        "evidence": {"$ref": "#/$defs/evidence"}
+      }
+    },
+    "reference": {
+      "type": "object",
+      "required": ["source_value", "library", "name", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "source_value": {},
+        "library": {"$ref": "#/$defs/nullableText"},
+        "name": {"$ref": "#/$defs/nullableText"},
+        "status": {"enum": ["parsed", "malformed", "missing"]}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {"enum": ["resolved", "missing", "malformed", "no_library_checkout", "library_table_error", "library_not_found", "unsupported_library_type", "unsupported_library_uri", "unsafe_library_path", "unsafe_reference", "file_not_found", "symbol_not_found", "parse_error"]},
+        "provenance": {
+          "type": "object", "required": ["path", "sha256"], "additionalProperties": false,
+          "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/hash"}}
+        },
+        "physical_numbers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "physical_count": {"type": "integer", "minimum": 0},
+        "count_comparable": {"type": "boolean"},
+        "ambiguities": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "mounting": {"enum": ["smd", "through_hole", "mixed_or_unknown"]},
+        "unnumbered_mechanical_pads": {"type": "integer", "minimum": 0},
+        "detail": {"type": "string"}
+      },
+      "allOf": [{
+        "if": {"properties": {"status": {"const": "resolved"}}},
+        "then": {"required": ["provenance", "physical_numbers", "physical_count", "count_comparable", "ambiguities"]}
+      }]
+    },
+    "representation": {
+      "type": "object",
+      "required": ["schema_version", "representation_id", "source_id", "component_id", "kind", "reference", "evidence", "geometry"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/version"},
+        "representation_id": {"$ref": "#/$defs/id"},
+        "source_id": {"$ref": "#/$defs/id"},
+        "component_id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["symbol", "footprint"]},
+        "reference": {"$ref": "#/$defs/reference"},
+        "evidence": {"$ref": "#/$defs/evidence"},
+        "geometry": {"$ref": "#/$defs/geometry"}
+      }
+    },
+    "anomaly": {
+      "type": "object",
+      "required": ["schema_version", "anomaly_id", "rule", "severity", "source_ids", "component_id", "evidence", "verification", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/version"},
+        "anomaly_id": {"$ref": "#/$defs/id"},
+        "rule": {"enum": ["pin_count_mismatch", "package_mismatch", "mounting_mismatch", "identity_collision", "datasheet_placeholder_unresolved", "lifecycle_normalization_needed", "semantic_generation_mismatch"]},
+        "severity": {"enum": ["high", "medium", "low"]},
+        "source_ids": {"$ref": "#/$defs/ids"},
+        "component_id": {"$ref": "#/$defs/id"},
+        "evidence": {"type": "object"},
+        "verification": {"const": "unverified"},
+        "action": {"const": "review_against_manufacturer_evidence"}
+      }
+    },
+    "report": {
+      "type": "object",
+      "required": ["schema_version", "gate", "source", "counts", "checks", "lifecycle_counts", "reference_parse_counts", "geometry_status_counts", "anomaly_counts", "top_100_anomalies", "library_evidence", "authority", "verification", "datasheet_crosscheck", "limitations"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/version"},
+        "gate": {"const": "F0_CERN_INGESTION"},
+        "source": {
+          "type": "object", "required": ["name", "sha256_before", "sha256_after", "read_mode"],
+          "additionalProperties": false,
+          "properties": {
+            "name": {"type": "string"},
+            "sha256_before": {"$ref": "#/$defs/hash"},
+            "sha256_after": {"$ref": "#/$defs/hash"},
+            "read_mode": {"const": "sqlite_uri_mode_ro"}
+          }
+        },
+        "counts": {
+          "type": "object",
+          "required": ["tables", "expected_source_rows", "raw_rows", "normalized_components", "representations", "anomalies", "unresolved_representations", "ambiguous_geometries"],
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "checks": {
+          "type": "object",
+          "required": ["all_rows_extracted", "all_sources_linked", "all_source_columns_preserved", "source_hash_unchanged", "all_lifecycle_values_normalized", "all_reference_slots_recorded", "geometry_complete"],
+          "additionalProperties": {"type": "boolean"}
+        },
+        "lifecycle_counts": {"$ref": "#/$defs/counters"},
+        "reference_parse_counts": {"$ref": "#/$defs/counters"},
+        "geometry_status_counts": {
+          "type": "object", "required": ["symbol", "footprint"], "additionalProperties": false,
+          "properties": {"symbol": {"$ref": "#/$defs/counters"}, "footprint": {"$ref": "#/$defs/counters"}}
+        },
+        "anomaly_counts": {
+          "type": "object",
+          "required": ["pin_count_mismatch", "package_mismatch", "mounting_mismatch", "identity_collision", "datasheet_placeholder_unresolved", "lifecycle_normalization_needed", "semantic_generation_mismatch"],
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "top_100_anomalies": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/anomaly"}},
+        "library_evidence": {
+          "type": "object", "required": ["provided", "table_sha256", "table_errors", "revision"], "additionalProperties": false,
+          "properties": {
+            "provided": {"type": "boolean"},
+            "table_sha256": {"type": "object", "additionalProperties": {"$ref": "#/$defs/hash"}},
+            "table_errors": {"type": "object", "additionalProperties": {"type": "string"}},
+            "revision": {"type": "string"}
+          }
+        },
+        "authority": {"const": "institutional_evidence_not_manufacturer_truth"},
+        "verification": {"const": "unverified"},
+        "datasheet_crosscheck": {"const": "not_implemented"},
+        "limitations": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    },
+    "counters": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "inventory": {
+      "type": "object", "required": ["schema_version", "tables"], "additionalProperties": false,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/version"},
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["name", "sql", "columns", "row_count"], "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string"}, "sql": {"$ref": "#/$defs/nullableText"},
+              "row_count": {"type": "integer", "minimum": 0},
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object", "required": ["cid", "name", "type", "notnull", "default", "pk", "hidden"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "cid": {"type": "integer"}, "name": {"type": "string"}, "type": {"type": "string"},
+                    "notnull": {"type": "integer"}, "default": {},
+                    "pk": {"type": "integer"}, "hidden": {"type": "integer"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

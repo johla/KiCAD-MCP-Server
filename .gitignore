@@ -77,3 +77,6 @@ coverage.xml
 # OS
 Thumbs.db
 Desktop.ini
+
+# Regenerable CERN evidence exports and optional downloaded library evidence
+generated/cern/
