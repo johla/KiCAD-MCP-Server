@@ -19,6 +19,7 @@ from adapters.cern.anomaly_rules import (
     package_family,
     row_anomalies,
 )
+from adapters.cern.catalog import search_components
 from adapters.cern.extract_components import extract, json_value
 from adapters.cern.inspect_sqlite import inspect, open_readonly, quote, sha256
 from adapters.cern.join_kicad_footprints import FootprintJoiner
@@ -211,6 +212,24 @@ def test_lossless_extraction_and_read_only(database):
     assert sha256(database) == before
     assert not Path(str(database) + "-wal").exists()
     assert json_value(float("inf")) == {"$sqlite_float": "inf"}
+
+
+def test_catalog_search_is_read_only_and_bounded(database):
+    before = sha256(database)
+    results = search_components(database, "rp2040", limit=1)
+
+    assert results["total_matches"] == 2
+    assert results["truncated"] is True
+    assert len(results["results"]) == 1
+    assert results["results"][0]["cern_part_number"] == "RP2040"
+    assert results["results"][0]["component"]["manufacturer_part_number"] == "RP2040 / SC0914"
+    assert results["evidence"]["verification"] == "unverified"
+    assert sha256(database) == before
+
+    with pytest.raises(ValueError, match="non-whitespace"):
+        search_components(database, "   ")
+    with pytest.raises(ValueError, match="between 1 and 100"):
+        search_components(database, "rp2040", limit=101)
 
 
 def test_shadowed_rowid_and_generated_columns(work):

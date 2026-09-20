@@ -10,4 +10,5 @@ export { registerComponentTools } from './component.js';
 export { registerRoutingTools } from './routing.js';
 export { registerDesignRuleTools } from './design-rules.js';
 export { registerExportTools } from './export.js';
+export { registerCernTools } from './cern.js';
 export { registerSchematicTools } from './schematic.js';

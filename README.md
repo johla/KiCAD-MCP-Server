@@ -41,14 +41,22 @@ Access project state without executing tools:
 - Proper capability negotiation
 - Standards-compliant error codes
 
-## F0 CERN evidence ingestion
+## F0 CERN evidence ingestion and catalog search
 
 `python -m adapters.cern` is an independent, standard-library-only ingestion gate.
-It does **not** add MCP tools, import KiCad, select parts automatically, or modify
-`CERN.sqlite`. CERN's corpus is institutional evidence, **not manufacturer truth**.
+The MCP server additionally exposes `search_cern_components`, which performs a
+bounded, read-only text search over a CERN SQLite snapshot. Neither capability imports
+KiCad, selects parts automatically, downloads evidence, or modifies `CERN.sqlite`.
+CERN's corpus is institutional evidence, **not manufacturer truth**.
 All normalized components and representations remain `unverified`, including
 successfully resolved library geometry. Manufacturer datasheet crosschecking is
 explicitly `not_implemented`.
+
+`search_cern_components` returns matching source records with the source hash,
+normalized identity, lifecycle observation, and explicit evidence limitations. It
+does not rank suitability, verify availability, or recommend a component. By default
+it searches the repository's bundled `CERN.sqlite`; callers may provide a different
+quiescent SQLite snapshot and request up to 100 results.
 
 Run from this repository's root with Python 3.9 or newer:
 
